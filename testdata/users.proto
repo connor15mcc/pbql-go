@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package example.users;
+
+option go_package = "github.com/example/users";
+
+import "common.proto";
+
+// User represents a user in the system.
+message User {
+  int64 id = 1;
+  string email = 2;
+  string name = 3;
+  UserStatus status = 4;
+  repeated string roles = 5;
+  map<string, string> metadata = 6;
+  
+  oneof contact {
+    string phone = 7;
+    string address = 8;
+  }
+  
+  example.common.Timestamp created_at = 9;
+  example.common.Timestamp updated_at = 10;
+}
+
+enum UserStatus {
+  USER_STATUS_UNSPECIFIED = 0;
+  USER_STATUS_ACTIVE = 1;
+  USER_STATUS_INACTIVE = 2;
+  USER_STATUS_SUSPENDED = 3;
+}
+
+message CreateUserRequest {
+  string email = 1;
+  string name = 2;
+  repeated string roles = 3;
+}
+
+message CreateUserResponse {
+  User user = 1;
+}
+
+message GetUserRequest {
+  int64 id = 1;
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message ListUsersRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+  UserStatus status_filter = 3;
+}
+
+message ListUsersResponse {
+  repeated User users = 1;
+  string next_page_token = 2;
+  int32 total_count = 3;
+}
+
+message UpdateUserRequest {
+  int64 id = 1;
+  string email = 2;
+  string name = 3;
+}
+
+message UpdateUserResponse {
+  User user = 1;
+}
+
+message DeleteUserRequest {
+  int64 id = 1;
+}
+
+message DeleteUserResponse {
+  bool success = 1;
+}
+
+// UserService provides user management operations.
+service UserService {
+  // CreateUser creates a new user.
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+  
+  // GetUser retrieves a user by ID.
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  
+  // ListUsers lists users with pagination.
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  
+  // UpdateUser updates an existing user.
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+  
+  // DeleteUser deletes a user.
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+  
+  // WatchUsers streams user updates.
+  rpc WatchUsers(ListUsersRequest) returns (stream User);
+}

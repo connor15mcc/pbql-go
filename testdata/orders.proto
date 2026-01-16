@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+package example.orders;
+
+option go_package = "github.com/example/orders";
+
+import "common.proto";
+import "users.proto";
+
+message Order {
+  string id = 1;
+  int64 user_id = 2;
+  OrderStatus status = 3;
+  repeated OrderItem items = 4;
+  example.common.Money total = 5;
+  ShippingAddress shipping_address = 6;
+  example.common.Timestamp created_at = 7;
+  example.common.Timestamp updated_at = 8;
+}
+
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  ORDER_STATUS_PENDING = 1;
+  ORDER_STATUS_CONFIRMED = 2;
+  ORDER_STATUS_SHIPPED = 3;
+  ORDER_STATUS_DELIVERED = 4;
+  ORDER_STATUS_CANCELLED = 5;
+}
+
+message OrderItem {
+  string product_id = 1;
+  string product_name = 2;
+  int32 quantity = 3;
+  example.common.Money unit_price = 4;
+  example.common.Money total_price = 5;
+}
+
+message ShippingAddress {
+  string street = 1;
+  string city = 2;
+  string state = 3;
+  string postal_code = 4;
+  string country = 5;
+}
+
+message CreateOrderRequest {
+  int64 user_id = 1;
+  repeated OrderItem items = 2;
+  ShippingAddress shipping_address = 3;
+}
+
+message CreateOrderResponse {
+  Order order = 1;
+}
+
+message GetOrderRequest {
+  string id = 1;
+}
+
+message GetOrderResponse {
+  Order order = 1;
+}
+
+message ListOrdersRequest {
+  int64 user_id = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+  OrderStatus status_filter = 4;
+}
+
+message ListOrdersResponse {
+  repeated Order orders = 1;
+  string next_page_token = 2;
+}
+
+message CancelOrderRequest {
+  string id = 1;
+  string reason = 2;
+}
+
+message CancelOrderResponse {
+  Order order = 1;
+}
+
+// OrderService provides order management operations.
+service OrderService {
+  // CreateOrder creates a new order.
+  rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse);
+  
+  // GetOrder retrieves an order by ID.
+  rpc GetOrder(GetOrderRequest) returns (GetOrderResponse);
+  
+  // ListOrders lists orders for a user.
+  rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
+  
+  // CancelOrder cancels an existing order.
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+  
+  // StreamOrderUpdates streams order status updates.
+  rpc StreamOrderUpdates(GetOrderRequest) returns (stream Order);
+}
+
+// InventoryService manages product inventory.
+service InventoryService {
+  // CheckStock checks product stock levels.
+  rpc CheckStock(CheckStockRequest) returns (CheckStockResponse);
+  
+  // ReserveStock reserves inventory for an order.
+  rpc ReserveStock(ReserveStockRequest) returns (ReserveStockResponse);
+  
+  // ReleaseStock releases previously reserved inventory.
+  rpc ReleaseStock(ReleaseStockRequest) returns (ReleaseStockResponse);
+}
+
+message CheckStockRequest {
+  repeated string product_ids = 1;
+}
+
+message CheckStockResponse {
+  map<string, int32> stock_levels = 1;
+}
+
+message ReserveStockRequest {
+  string order_id = 1;
+  repeated OrderItem items = 2;
+}
+
+message ReserveStockResponse {
+  bool success = 1;
+  string reservation_id = 2;
+}
+
+message ReleaseStockRequest {
+  string reservation_id = 1;
+}
+
+message ReleaseStockResponse {
+  bool success = 1;
+}

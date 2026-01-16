@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package example.annotations;
+
+option go_package = "github.com/example/annotations";
+
+import "google/protobuf/descriptor.proto";
+
+// Custom service-level option
+message ServiceOption {
+  string owner = 1;
+  string tier = 2;           // e.g., "critical", "standard"
+  int32 timeout_ms = 3;
+  bool requires_auth = 4;
+}
+
+// Custom method-level option for HTTP routing
+message HttpRule {
+  string get = 1;
+  string post = 2;
+  string put = 3;
+  string delete = 4;
+  string body = 5;
+}
+
+// Custom field-level option for validation
+message FieldValidation {
+  bool required = 1;
+  int32 min_length = 2;
+  int32 max_length = 3;
+  string pattern = 4;        // regex pattern
+  double min_value = 5;
+  double max_value = 6;
+}
+
+// Custom message-level option
+message MessageOption {
+  bool deprecated_message = 1;
+  string replacement = 2;
+}
+
+// Extend service options
+extend google.protobuf.ServiceOptions {
+  ServiceOption service_config = 50000;
+}
+
+// Extend method options
+extend google.protobuf.MethodOptions {
+  HttpRule http = 50001;
+  bool admin_only = 50002;
+}
+
+// Extend field options
+extend google.protobuf.FieldOptions {
+  FieldValidation validate = 50003;
+}
+
+// Extend message options
+extend google.protobuf.MessageOptions {
+  MessageOption msg_config = 50004;
+}

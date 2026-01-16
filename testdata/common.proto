@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package example.common;
+
+option go_package = "github.com/example/common";
+
+// Timestamp represents a point in time.
+message Timestamp {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}
+
+// Duration represents a span of time.
+message Duration {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}
+
+// Money represents a monetary amount.
+message Money {
+  string currency_code = 1;
+  int64 units = 2;
+  int32 nanos = 3;
+}
+
+// Pagination provides pagination metadata.
+message Pagination {
+  int32 page = 1;
+  int32 page_size = 2;
+  int32 total_pages = 3;
+  int64 total_items = 4;
+}
+
+// Error represents an API error.
+message Error {
+  int32 code = 1;
+  string message = 2;
+  repeated ErrorDetail details = 3;
+}
+
+message ErrorDetail {
+  string field = 1;
+  string reason = 2;
+}

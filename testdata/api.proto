@@ -1,0 +1,175 @@
+syntax = "proto3";
+
+package example.api;
+
+option go_package = "github.com/example/api";
+
+import "annotations.proto";
+
+// UserService with custom options
+service UserService {
+  option (example.annotations.service_config) = {
+    owner: "platform-team"
+    tier: "critical"
+    timeout_ms: 5000
+    requires_auth: true
+  };
+
+  // Public endpoint
+  rpc GetUser(GetUserRequest) returns (GetUserResponse) {
+    option (example.annotations.http) = {
+      get: "/v1/users/{id}"
+    };
+  }
+
+  // Admin-only endpoint
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse) {
+    option (example.annotations.http) = {
+      delete: "/v1/admin/users/{id}"
+    };
+    option (example.annotations.admin_only) = true;
+  }
+
+  // Create with body
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse) {
+    option (example.annotations.http) = {
+      post: "/v1/users"
+      body: "*"
+    };
+  }
+
+  // Deprecated method
+  rpc ListUsersLegacy(ListUsersRequest) returns (ListUsersResponse) {
+    option deprecated = true;
+    option (example.annotations.http) = {
+      get: "/v1/users"
+    };
+  }
+}
+
+// AdminService for admin operations
+service AdminService {
+  option (example.annotations.service_config) = {
+    owner: "security-team"
+    tier: "critical"
+    timeout_ms: 10000
+    requires_auth: true
+  };
+
+  rpc AuditLog(AuditLogRequest) returns (AuditLogResponse) {
+    option (example.annotations.http) = {
+      get: "/v1/admin/audit"
+    };
+    option (example.annotations.admin_only) = true;
+  }
+}
+
+// Request/Response messages with field validation
+
+message GetUserRequest {
+  string id = 1 [(example.annotations.validate) = {
+    required: true
+    min_length: 1
+    max_length: 64
+    pattern: "^[a-zA-Z0-9-]+$"
+  }];
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message DeleteUserRequest {
+  string id = 1 [(example.annotations.validate) = {
+    required: true
+  }];
+}
+
+message DeleteUserResponse {
+  bool success = 1;
+}
+
+message CreateUserRequest {
+  string email = 1 [(example.annotations.validate) = {
+    required: true
+    pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+  }];
+  
+  string name = 2 [(example.annotations.validate) = {
+    required: true
+    min_length: 1
+    max_length: 100
+  }];
+  
+  int32 age = 3 [(example.annotations.validate) = {
+    min_value: 0
+    max_value: 150
+  }];
+}
+
+message CreateUserResponse {
+  User user = 1;
+}
+
+message ListUsersRequest {
+  int32 page_size = 1 [(example.annotations.validate) = {
+    min_value: 1
+    max_value: 100
+  }];
+  string page_token = 2;
+}
+
+message ListUsersResponse {
+  repeated User users = 1;
+  string next_page_token = 2;
+}
+
+message AuditLogRequest {
+  string start_time = 1;
+  string end_time = 2;
+}
+
+message AuditLogResponse {
+  repeated AuditEntry entries = 1;
+}
+
+message AuditEntry {
+  string timestamp = 1;
+  string action = 2;
+  string user_id = 3;
+}
+
+// User message with deprecated field
+message User {
+  option (example.annotations.msg_config) = {
+    deprecated_message: false
+  };
+
+  string id = 1;
+  string email = 2;
+  string name = 3;
+  
+  // Deprecated field
+  string username = 4 [deprecated = true];
+  
+  UserStatus status = 5;
+}
+
+// Deprecated message
+message LegacyUser {
+  option deprecated = true;
+  option (example.annotations.msg_config) = {
+    deprecated_message: true
+    replacement: "User"
+  };
+  
+  string id = 1;
+  string name = 2;
+}
+
+enum UserStatus {
+  USER_STATUS_UNSPECIFIED = 0;
+  USER_STATUS_ACTIVE = 1;
+  USER_STATUS_INACTIVE = 2 [deprecated = true];  // Use SUSPENDED instead
+  USER_STATUS_SUSPENDED = 3;
+}
