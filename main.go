@@ -9,12 +9,14 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/cogentcore/readline"
 	"github.com/connor15mcc/pbql-go/parser"
 	"github.com/connor15mcc/pbql-go/schema"
+	"github.com/connor15mcc/pbql-go/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -174,143 +176,11 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-}
 
+}
 
 func interactiveMode(db *sql.DB, format string) error {
-	historyPath, _ := os.UserHomeDir()
-	historyPath = filepath.Join(historyPath, ".pbql_history")
-
-	rl, err := readline.NewFromConfig(&readline.Config{
-		Prompt:      "pbql> ",
-		HistoryFile: historyPath,
-	})
-	if err != nil {
-		return fmt.Errorf("error initializing readline: %v", err)
-	}
-	defer rl.Close()
-
-	currentFormat := format
-
-	fmt.Println("pbql-go interactive mode. Type '.help' for commands, '.quit' to exit.")
-	fmt.Println("Enter SQL queries to explore your protobuf definitions.")
-	fmt.Println()
-
-	for {
-		line, err := rl.ReadLine()
-		if err != nil {
-			if err == io.EOF {
-				fmt.Println("Goodbye!")
-			}
-			break
-		}
-
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		switch strings.ToLower(line) {
-		case ".quit", ".exit", ".q":
-			fmt.Println("Goodbye!")
-			return nil
-		case ".help", ".h", ".?":
-			printHelp()
-			continue
-		case ".tables":
-			line = "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-		case ".schema":
-			printSchema()
-			continue
-		default:
-			if strings.HasPrefix(line, ".format ") {
-				newFmt := strings.TrimSpace(strings.TrimPrefix(line, ".format "))
-				if newFmt == "table" || newFmt == "json" || newFmt == "csv" {
-					currentFormat = newFmt
-					fmt.Printf("Output format set to %s\n", newFmt)
-				} else {
-					fmt.Printf("Invalid format: %s. Valid formats: table, json, csv\n", newFmt)
-				}
-				fmt.Println()
-				continue
-			}
-		}
-
-		if err := executeQuery(db, line, currentFormat); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		}
-		fmt.Println()
-	}
-	return nil
-}
-
-func printHelp() {
-	fmt.Print(`Commands:
-   .help, .h, .?   Show this help
-   .tables         List all tables
-   .schema         Show detailed schema
-   .format <fmt>   Set output format (table, json, csv)
-   .quit, .exit    Exit interactive mode
-
-Example queries:
-  -- Count methods per service
-  SELECT s.name, COUNT(m.name) as methods 
-  FROM services s 
-  LEFT JOIN methods m ON s.full_name = m.service 
-  GROUP BY s.name;
-
-  -- Find all streaming RPCs
-  SELECT service, name, client_streaming, server_streaming 
-  FROM methods 
-  WHERE client_streaming OR server_streaming;
-
-  -- Messages with most fields
-  SELECT m.name, COUNT(*) as field_count 
-  FROM messages m 
-  JOIN fields f ON m.full_name = f.message 
-  GROUP BY m.full_name 
-  ORDER BY field_count DESC 
-  LIMIT 10;
-
-  -- Find repeated fields
-  SELECT message, name, type 
-  FROM fields 
-  WHERE is_repeated = true;
-
- Querying options (options is JSON, use -> or json_extract_string):
-  -- Services with a specific option
-   SELECT name, options->'my.custom.option'->>'field' as val
-   FROM services WHERE options IS NOT NULL;
-
-  -- Find deprecated methods
-  SELECT name FROM methods 
-   WHERE json_extract_string(options, '$.deprecated') = 'true';
-
-  -- Query custom extension options (use quotes for dotted keys)
-   SELECT name, json_extract_string(options, '$."google.api.http".get') as path
-   FROM methods WHERE options IS NOT NULL;
-`)
-}
-
-func printSchema() {
-	fmt.Print(`Tables:
-  files (name, package, syntax, options)
-  messages (full_name, name, file, parent_message, is_map_entry, options)
-  fields (id, name, number, message, type, type_name, label, is_repeated, is_optional, is_map, map_key_type, map_value_type, default_value, json_name, options)
-  enums (full_name, name, file, parent_message, options)
-  enum_values (id, name, number, enum, options)
-  services (full_name, name, file, options)
-  methods (full_name, name, service, input_type, output_type, client_streaming, server_streaming, options)
-  extensions (full_name, name, number, file, extendee, type, type_name, options)
-  oneofs (id, name, message, options)
-  oneof_fields (oneof_id, field_id)
-  dependencies (file, dependency, is_public, is_weak)
-
- Options column contains JSON with proto options. Query with:
-   options->'option_name'->>'field'           -- arrow syntax
-   json_extract_string(options, '$.path')     -- JSONPath syntax
-   json_extract_string(options, '$."dotted.key".field')  -- quoted keys
-`)
+	return tui.Run(db, format)
 }
 
 func executeQuery(db *sql.DB, query, format string) error {
@@ -467,4 +337,39 @@ func formatValue(val interface{}) string {
 	}
 }
 
+// stringSlice implements flag.Value for collecting multiple string flags
+type stringSlice []string
 
+func (s *stringSlice) String() string {
+	return strings.Join(*s, ",")
+}
+
+func (s *stringSlice) Set(value string) error {
+	*s = append(*s, value)
+	return nil
+}
+
+func getHistoryPath() (string, error) {
+	usr, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(usr.HomeDir, ".pbql_history"), nil
+}
+
+func appendToHistory(query string) error {
+	path, err := getHistoryPath()
+	if err != nil {
+		return err
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	timestamp := time.Now().Format(time.RFC3339)
+	_, err = f.WriteString(fmt.Sprintf("# %s\n%s\n\n", timestamp, query))
+	return err
+}
