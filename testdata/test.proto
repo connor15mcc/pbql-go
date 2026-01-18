@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package test;
+
+option go_package = "test";
+
+message User {
+  string name = 1;
+  int32 age = 2;
+  repeated string tags = 3;
+}
+
+enum Status {
+  ACTIVE = 0;
+  INACTIVE = 1;
+}
+
+message Response {
+  Status status = 1;
+  string message = 2;
+}
+
+service TestService {
+  rpc CreateUser(User) returns (Response);
+  rpc GetUser(GetUserRequest) returns (User);
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}

@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,163 +15,169 @@ import (
 	"github.com/cogentcore/readline"
 	"github.com/connor15mcc/pbql-go/parser"
 	"github.com/connor15mcc/pbql-go/schema"
+	"github.com/spf13/cobra"
 )
 
+func mainE(args []string) error {
+	oldArgs := os.Args
+	os.Args = append([]string{"pbql-go"}, args...)
+	defer func() { os.Args = oldArgs }()
+
+	rootCmd := &cobra.Command{
+		Use:   "pbql-go [flags] <proto-files-or-directories...>",
+		Short: "Query protobuf definitions using SQL",
+		Long: `Query protobuf definitions using SQL.
+
+This tool allows you to explore and analyze protobuf files using SQL queries,
+similar to how you would query a database.
+
+Tables available:
+  files
+  messages
+  fields
+  enums
+  enum_values
+  services
+  methods
+  extensions
+  oneofs
+  oneof_fields
+  dependencies`,
+		Example: `  # Count methods per service
+  pbql-go -q "SELECT s.name, COUNT(m.name) as method_count FROM services s LEFT JOIN methods m ON s.full_name = m.service GROUP BY s.name" ./protos/
+
+  # Find all streaming RPCs
+  pbql-go -q "SELECT * FROM methods WHERE client_streaming OR server_streaming" ./protos/
+
+  # List messages with more than 10 fields
+  pbql-go -q "SELECT m.full_name, COUNT(*) as field_count FROM messages m JOIN fields f ON m.full_name = f.message GROUP BY m.full_name HAVING COUNT(*) > 10" ./protos/`,
+		RunE: func(cmd *cobra.Command, cmdArgs []string) error {
+			query, _ := cmd.Flags().GetString("query")
+			format, _ := cmd.Flags().GetString("format")
+			verbose, _ := cmd.Flags().GetCount("verbose")
+
+			if len(cmdArgs) == 0 {
+				return fmt.Errorf("at least one proto file or directory is required")
+			}
+
+			// Collect proto files
+			var protoFiles []string
+			var protoDirs []string
+			for _, arg := range cmdArgs {
+				info, err := os.Stat(arg)
+				if err != nil {
+					return fmt.Errorf("error: %v", err)
+				}
+
+				if info.IsDir() {
+					protoDirs = append(protoDirs, arg)
+				} else {
+					protoFiles = append(protoFiles, arg)
+				}
+			}
+
+			// Initialize database
+			db, err := schema.New()
+			if err != nil {
+				return fmt.Errorf("error initializing database: %v", err)
+			}
+			defer db.Close()
+
+			ctx := context.Background()
+
+			// Set up structured logging based on verbosity level
+			var logWriter io.Writer = os.Stderr
+			var handler slog.Handler
+			if verbose == 0 {
+				handler = slog.NewTextHandler(logWriter, &slog.HandlerOptions{Level: slog.LevelError})
+			} else if verbose == 1 {
+				handler = slog.NewTextHandler(logWriter, &slog.HandlerOptions{Level: slog.LevelInfo})
+			} else {
+				handler = slog.NewTextHandler(logWriter, &slog.HandlerOptions{Level: slog.LevelDebug})
+			}
+			slog.SetDefault(slog.New(handler))
+
+			// Parse directories
+			for _, dir := range protoDirs {
+				result, err := parser.ParseDirectory(ctx, dir, parser.Options{ Lenient: true })
+				if err != nil {
+					return fmt.Errorf("error parsing directory %s: %v", dir, err)
+				}
+				if len(result.Errors) > 0 {
+					slog.Info("parsed directory with errors", "dir", dir, "error_count", len(result.Errors))
+					for _, e := range result.Errors {
+						slog.Debug("parse error", "error", e)
+					}
+				} else {
+					slog.Debug("parsed directory successfully", "dir", dir)
+				}
+				if err := db.LoadFiles(result.Files); err != nil {
+					return fmt.Errorf("error loading files from %s: %v", dir, err)
+				}
+			}
+
+			// Parse individual files
+			if len(protoFiles) > 0 {
+				// Convert to basenames for parsing
+				baseNames := make([]string, len(protoFiles))
+				for i, f := range protoFiles {
+					baseNames[i] = filepath.Base(f)
+				}
+
+				// Change to first file's directory
+				firstDir := filepath.Dir(protoFiles[0])
+				origDir, _ := os.Getwd()
+				os.Chdir(firstDir)
+				defer os.Chdir(origDir)
+
+				result, err := parser.ParseFiles(ctx, baseNames, parser.Options{ ImportPaths: []string{"."}, Lenient: true })
+				if err != nil {
+					return fmt.Errorf("error parsing files: %v", err)
+				}
+				if len(result.Errors) > 0 {
+					slog.Info("parsed files with errors", "error_count", len(result.Errors))
+					for _, e := range result.Errors {
+						slog.Debug("parse error", "error", e)
+					}
+				} else {
+					slog.Debug("parsed files successfully")
+				}
+				if err := db.LoadFiles(result.Files); err != nil {
+					return fmt.Errorf("error loading files: %v", err)
+				}
+			}
+
+			// Execute query or enter interactive mode
+			if query != "" {
+				if err := executeQuery(db.DB, query, format); err != nil {
+					return fmt.Errorf("error: %v", err)
+				}
+			} else {
+				if err := interactiveMode(db.DB, format); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+
+	rootCmd.Flags().StringP("query", "q", "", "SQL query to execute")
+	rootCmd.Flags().StringP("format", "f", "table", "Output format: table, json, csv")
+	rootCmd.Flags().CountP("verbose", "v", "Increase verbosity (specify multiple times: -v, -vv, -vvv)")
+
+	return rootCmd.Execute()
+}
+
 func main() {
-	var (
-		query       string
-		importPaths stringSlice
-		format      string
-		lenient     bool
-	)
-
-	flag.StringVar(&query, "q", "", "SQL query to execute")
-	flag.StringVar(&query, "query", "", "SQL query to execute")
-	flag.Var(&importPaths, "I", "Import paths for proto files (can be specified multiple times)")
-	flag.Var(&importPaths, "import", "Import paths for proto files (can be specified multiple times)")
-	flag.StringVar(&format, "f", "table", "Output format: table, json, csv")
-	flag.StringVar(&format, "format", "table", "Output format: table, json, csv")
-	flag.BoolVar(&lenient, "lenient", false, "Continue parsing even if some files have errors")
-	flag.BoolVar(&lenient, "l", false, "Continue parsing even if some files have errors")
-
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [flags] <proto-files-or-directories...>\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "Query protobuf definitions using SQL.\n\n")
-		fmt.Fprintf(os.Stderr, "Flags:\n")
-		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nTables available:\n")
-		fmt.Fprintf(os.Stderr, "  files\n")
-		fmt.Fprintf(os.Stderr, "  messages\n")
-		fmt.Fprintf(os.Stderr, "  fields\n")
-		fmt.Fprintf(os.Stderr, "  enums\n")
-		fmt.Fprintf(os.Stderr, "  enum_values\n")
-		fmt.Fprintf(os.Stderr, "  services\n")
-		fmt.Fprintf(os.Stderr, "  methods\n")
-		fmt.Fprintf(os.Stderr, "  extensions\n")
-		fmt.Fprintf(os.Stderr, "  oneofs\n")
-		fmt.Fprintf(os.Stderr, "  oneof_fields\n")
-		fmt.Fprintf(os.Stderr, "  dependencies\n")
-		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  # Count methods per service\n")
-		fmt.Fprintf(os.Stderr, "  %s -q \"SELECT s.name, COUNT(m.name) as method_count FROM services s LEFT JOIN methods m ON s.full_name = m.service GROUP BY s.name\" ./protos/\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  # Find all streaming RPCs\n")
-		fmt.Fprintf(os.Stderr, "  %s -q \"SELECT * FROM methods WHERE client_streaming OR server_streaming\" ./protos/\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  # List messages with more than 10 fields\n")
-		fmt.Fprintf(os.Stderr, "  %s -q \"SELECT m.full_name, COUNT(*) as field_count FROM messages m JOIN fields f ON m.full_name = f.message GROUP BY m.full_name HAVING COUNT(*) > 10\" ./protos/\n", os.Args[0])
-	}
-
-	flag.Parse()
-
-	if flag.NArg() == 0 {
-		fmt.Fprintf(os.Stderr, "Error: at least one proto file or directory is required\n\n")
-		flag.Usage()
-		os.Exit(1)
-	}
-
-	// Collect proto files
-	var protoFiles []string
-	var protoDirs []string
-	for _, arg := range flag.Args() {
-		info, err := os.Stat(arg)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
-		if info.IsDir() {
-			protoDirs = append(protoDirs, arg)
-		} else {
-			protoFiles = append(protoFiles, arg)
-		}
-	}
-
-	// Initialize database
-	db, err := schema.New()
+	err := mainE(os.Args[1:])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing database: %v\n", err)
+		fmt.Println(err)
 		os.Exit(1)
-	}
-	defer db.Close()
-
-	ctx := context.Background()
-
-	parseOpts := parser.Options{ Lenient: lenient }
-
-	// Parse directories
-	for _, dir := range protoDirs {
-		result, err := parser.ParseDirectory(ctx, dir, parseOpts)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing directory %s: %v\n", dir, err)
-			os.Exit(1)
-		}
-		if len(result.Errors) > 0 {
-			fmt.Fprintf(os.Stderr, "Parsed with %d errors (lenient mode):\n", len(result.Errors))
-			for _, e := range result.Errors {
-				fmt.Fprintf(os.Stderr, "  - %v\n", e)
-			}
-		}
-		if err := db.LoadFiles(result.Files); err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading files from %s: %v\n", dir, err)
-			os.Exit(1)
-		}
-	}
-
-	// Parse individual files
-	if len(protoFiles) > 0 {
-		// Determine import paths from file locations
-		allImportPaths := make([]string, 0, len(importPaths)+len(protoFiles))
-		allImportPaths = append(allImportPaths, importPaths...)
-
-		// Add directories containing proto files as import paths
-		seenDirs := make(map[string]bool)
-		for _, f := range protoFiles {
-			dir := filepath.Dir(f)
-			absDir, _ := filepath.Abs(dir)
-			if !seenDirs[absDir] {
-				seenDirs[absDir] = true
-				allImportPaths = append(allImportPaths, absDir)
-			}
-		}
-
-		// Convert to basenames for parsing
-		baseNames := make([]string, len(protoFiles))
-		for i, f := range protoFiles {
-			baseNames[i] = filepath.Base(f)
-		}
-
-		// Change to first file's directory
-		firstDir := filepath.Dir(protoFiles[0])
-		origDir, _ := os.Getwd()
-		os.Chdir(firstDir)
-		defer os.Chdir(origDir)
-
-		fileParseOpts := parser.Options{
-			ImportPaths:   []string{"."},
-			Lenient:       lenient,
-		}
-		result, err := parser.ParseFiles(ctx, baseNames, fileParseOpts)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing files: %v\n", err)
-			os.Exit(1)
-		}
-		if err := db.LoadFiles(result.Files); err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading files: %v\n", err)
-			os.Exit(1)
-		}
-	}
-
-	// Execute query or enter interactive mode
-	if query != "" {
-		if err := executeQuery(db.DB, query, format); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-	} else {
-		interactiveMode(db.DB, format)
 	}
 }
 
-func interactiveMode(db *sql.DB, format string) {
+
+func interactiveMode(db *sql.DB, format string) error {
 	historyPath, _ := os.UserHomeDir()
 	historyPath = filepath.Join(historyPath, ".pbql_history")
 
@@ -180,8 +186,7 @@ func interactiveMode(db *sql.DB, format string) {
 		HistoryFile: historyPath,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing readline: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("error initializing readline: %v", err)
 	}
 	defer rl.Close()
 
@@ -208,7 +213,7 @@ func interactiveMode(db *sql.DB, format string) {
 		switch strings.ToLower(line) {
 		case ".quit", ".exit", ".q":
 			fmt.Println("Goodbye!")
-			return
+			return nil
 		case ".help", ".h", ".?":
 			printHelp()
 			continue
@@ -236,6 +241,7 @@ func interactiveMode(db *sql.DB, format string) {
 		}
 		fmt.Println()
 	}
+	return nil
 }
 
 func printHelp() {
@@ -461,14 +467,4 @@ func formatValue(val interface{}) string {
 	}
 }
 
-// stringSlice implements flag.Value for collecting multiple string flags
-type stringSlice []string
 
-func (s *stringSlice) String() string {
-	return strings.Join(*s, ",")
-}
-
-func (s *stringSlice) Set(value string) error {
-	*s = append(*s, value)
-	return nil
-}
