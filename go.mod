@@ -1,4 +1,4 @@
-module github.com/connormccarthy/pbql-go
+module github.com/connor15mcc/pbql-go
 
 go 1.25.5
 

@@ -13,8 +13,8 @@ import (
 	"strings"
 
 	"github.com/cogentcore/readline"
-	"github.com/connormccarthy/pbql-go/parser"
-	"github.com/connormccarthy/pbql-go/schema"
+	"github.com/connor15mcc/pbql-go/parser"
+	"github.com/connor15mcc/pbql-go/schema"
 )
 
 func main() {
