@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
-	"encoding/json"
 	"fmt"
 
 	"github.com/bufbuild/protocompile/linker"
@@ -53,13 +52,13 @@ func New() (*DB, error) {
 func (d *DB) createSchema() error {
 	// Create tables without foreign key constraints for faster loading
 	// DuckDB doesn't enforce FK constraints anyway, they're just metadata
-	// Note: options stored as VARCHAR containing JSON - use ::JSON to query
+	// Note: options stored as JSON - query directly with -> or json_extract_string
 	schemas := []string{
 		`CREATE TABLE files (
 			name VARCHAR PRIMARY KEY,
 			package VARCHAR,
 			syntax VARCHAR,
-			options VARCHAR
+			options JSON
 		)`,
 		`CREATE TABLE messages (
 			full_name VARCHAR PRIMARY KEY,
@@ -67,7 +66,7 @@ func (d *DB) createSchema() error {
 			file VARCHAR NOT NULL,
 			parent_message VARCHAR,
 			is_map_entry BOOLEAN DEFAULT FALSE,
-			options VARCHAR
+			options JSON
 		)`,
 		`CREATE TABLE fields (
 			id VARCHAR PRIMARY KEY,
@@ -84,27 +83,27 @@ func (d *DB) createSchema() error {
 			map_value_type VARCHAR,
 			default_value VARCHAR,
 			json_name VARCHAR,
-			options VARCHAR
+			options JSON
 		)`,
 		`CREATE TABLE enums (
 			full_name VARCHAR PRIMARY KEY,
 			name VARCHAR NOT NULL,
 			file VARCHAR NOT NULL,
 			parent_message VARCHAR,
-			options VARCHAR
+			options JSON
 		)`,
 		`CREATE TABLE enum_values (
 			id VARCHAR PRIMARY KEY,
 			name VARCHAR NOT NULL,
 			number INTEGER NOT NULL,
 			enum VARCHAR NOT NULL,
-			options VARCHAR
+			options JSON
 		)`,
 		`CREATE TABLE services (
 			full_name VARCHAR PRIMARY KEY,
 			name VARCHAR NOT NULL,
 			file VARCHAR NOT NULL,
-			options VARCHAR
+			options JSON
 		)`,
 		`CREATE TABLE methods (
 			full_name VARCHAR PRIMARY KEY,
@@ -114,7 +113,7 @@ func (d *DB) createSchema() error {
 			output_type VARCHAR NOT NULL,
 			client_streaming BOOLEAN DEFAULT FALSE,
 			server_streaming BOOLEAN DEFAULT FALSE,
-			options VARCHAR
+			options JSON
 		)`,
 		`CREATE TABLE extensions (
 			full_name VARCHAR PRIMARY KEY,
@@ -124,13 +123,13 @@ func (d *DB) createSchema() error {
 			extendee VARCHAR NOT NULL,
 			type VARCHAR NOT NULL,
 			type_name VARCHAR,
-			options VARCHAR
+			options JSON
 		)`,
 		`CREATE TABLE oneofs (
 			id VARCHAR PRIMARY KEY,
 			name VARCHAR NOT NULL,
 			message VARCHAR NOT NULL,
-			options VARCHAR
+			options JSON
 		)`,
 		`CREATE TABLE oneof_fields (
 			oneof_id VARCHAR NOT NULL,
@@ -325,13 +324,8 @@ func (bl *bulkLoader) extractOptions(opts proto.Message) interface{} {
 		return true
 	})
 
-	// Convert to JSON string for DuckDB
-	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return nil
-	}
-
-	return string(jsonBytes)
+	// Return JSON object for DuckDB JSON column
+	return result
 }
 
 // valueToInterface converts a protoreflect.Value to a Go interface{} for JSON serialization.

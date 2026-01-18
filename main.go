@@ -277,18 +277,18 @@ Example queries:
   FROM fields 
   WHERE is_repeated = true;
 
-Querying options (use ::JSON to cast, then -> or json_extract_string):
+ Querying options (options is JSON, use -> or json_extract_string):
   -- Services with a specific option
-  SELECT name, options::JSON->'my.custom.option'->>'field' as val
-  FROM services WHERE options IS NOT NULL;
+   SELECT name, options->'my.custom.option'->>'field' as val
+   FROM services WHERE options IS NOT NULL;
 
   -- Find deprecated methods
   SELECT name FROM methods 
-  WHERE json_extract_string(options::JSON, '$.deprecated') = 'true';
+   WHERE json_extract_string(options, '$.deprecated') = 'true';
 
   -- Query custom extension options (use quotes for dotted keys)
-  SELECT name, json_extract_string(options::JSON, '$."google.api.http".get') as path
-  FROM methods WHERE options IS NOT NULL;
+   SELECT name, json_extract_string(options, '$."google.api.http".get') as path
+   FROM methods WHERE options IS NOT NULL;
 `)
 }
 
@@ -306,10 +306,10 @@ func printSchema() {
   oneof_fields (oneof_id, field_id)
   dependencies (file, dependency, is_public, is_weak)
 
-Options column contains JSON with proto options. Query with:
-  options::JSON->'option_name'->>'field'           -- arrow syntax
-  json_extract_string(options::JSON, '$.path')     -- JSONPath syntax
-  json_extract_string(options::JSON, '$."dotted.key".field')  -- quoted keys
+ Options column contains JSON with proto options. Query with:
+   options->'option_name'->>'field'           -- arrow syntax
+   json_extract_string(options, '$.path')     -- JSONPath syntax
+   json_extract_string(options, '$."dotted.key".field')  -- quoted keys
 `)
 }
 
