@@ -5,7 +5,8 @@ Query protobuf definitions using SQL.
 ## Installation
 
 ```bash
-go install -o $GOPATH/bin/pbql github.com/connor15mcc/pbql-go@latest
+go install $GOPATH/bin/pbql github.com/connor15mcc/pbql-go@latest
+mv ~/go/bin/pbql-go ~/go/bin/pbql # or use $GOPATH if set
 ```
 
 Or build locally:
