@@ -215,8 +215,8 @@ func outputTable(rows *sql.Rows, cols []string) error {
 	}
 
 	for rows.Next() {
-		values := make([]interface{}, len(cols))
-		valuePtrs := make([]interface{}, len(cols))
+		values := make([]any, len(cols))
+		valuePtrs := make([]any, len(cols))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -263,11 +263,11 @@ func printTableSeparator(widths []int) {
 }
 
 func outputJSON(rows *sql.Rows, cols []string) error {
-	var results []map[string]interface{}
+	var results []map[string]any
 
 	for rows.Next() {
-		values := make([]interface{}, len(cols))
-		valuePtrs := make([]interface{}, len(cols))
+		values := make([]any, len(cols))
+		valuePtrs := make([]any, len(cols))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -276,7 +276,7 @@ func outputJSON(rows *sql.Rows, cols []string) error {
 			return err
 		}
 
-		row := make(map[string]interface{})
+		row := make(map[string]any)
 		for i, col := range cols {
 			row[col] = values[i]
 		}
@@ -297,8 +297,8 @@ func outputCSV(rows *sql.Rows, cols []string) error {
 	}
 
 	for rows.Next() {
-		values := make([]interface{}, len(cols))
-		valuePtrs := make([]interface{}, len(cols))
+		values := make([]any, len(cols))
+		valuePtrs := make([]any, len(cols))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -320,7 +320,7 @@ func outputCSV(rows *sql.Rows, cols []string) error {
 	return rows.Err()
 }
 
-func formatValue(val interface{}) string {
+func formatValue(val any) string {
 	if val == nil {
 		return "NULL"
 	}

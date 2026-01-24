@@ -277,8 +277,8 @@ func executeQuery(db *sql.DB, query string) ([]table.Row, []string) {
 
 	var results []table.Row
 	for rows.Next() {
-		values := make([]interface{}, len(cols))
-		valuePtrs := make([]interface{}, len(cols))
+		values := make([]any, len(cols))
+		valuePtrs := make([]any, len(cols))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}

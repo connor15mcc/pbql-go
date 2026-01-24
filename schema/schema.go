@@ -31,7 +31,7 @@ func New() (*DB, error) {
 	}
 
 	var driverConn driver.Conn
-	if err := conn.Raw(func(dc interface{}) error {
+	if err := conn.Raw(func(dc any) error {
 		driverConn = dc.(driver.Conn)
 		return nil
 	}); err != nil {
@@ -286,7 +286,7 @@ func (bl *bulkLoader) Flush() error {
 
 // extractOptions extracts options from a protobuf descriptor and returns JSON.
 // Returns nil if no options are set.
-func (bl *bulkLoader) extractOptions(opts proto.Message) interface{} {
+func (bl *bulkLoader) extractOptions(opts proto.Message) any {
 	if opts == nil {
 		return nil
 	}
@@ -308,7 +308,7 @@ func (bl *bulkLoader) extractOptions(opts proto.Message) interface{} {
 	}
 
 	// Build a map of option name -> value
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 
 	msg.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 		var optionName string
@@ -328,11 +328,11 @@ func (bl *bulkLoader) extractOptions(opts proto.Message) interface{} {
 	return result
 }
 
-// valueToInterface converts a protoreflect.Value to a Go interface{} for JSON serialization.
-func valueToInterface(fd protoreflect.FieldDescriptor, v protoreflect.Value, resolver linker.Resolver) interface{} {
+// valueToInterface converts a protoreflect.Value to a Go any for JSON serialization.
+func valueToInterface(fd protoreflect.FieldDescriptor, v protoreflect.Value, resolver linker.Resolver) any {
 	if fd.IsList() {
 		list := v.List()
-		result := make([]interface{}, list.Len())
+		result := make([]any, list.Len())
 		for i := 0; i < list.Len(); i++ {
 			result[i] = scalarToInterface(fd, list.Get(i), resolver)
 		}
@@ -341,7 +341,7 @@ func valueToInterface(fd protoreflect.FieldDescriptor, v protoreflect.Value, res
 
 	if fd.IsMap() {
 		m := v.Map()
-		result := make(map[string]interface{})
+		result := make(map[string]any)
 		m.Range(func(k protoreflect.MapKey, v protoreflect.Value) bool {
 			keyStr := fmt.Sprintf("%v", k.Interface())
 			result[keyStr] = scalarToInterface(fd.MapValue(), v, resolver)
@@ -353,8 +353,8 @@ func valueToInterface(fd protoreflect.FieldDescriptor, v protoreflect.Value, res
 	return scalarToInterface(fd, v, resolver)
 }
 
-// scalarToInterface converts a scalar protoreflect.Value to a Go interface{}.
-func scalarToInterface(fd protoreflect.FieldDescriptor, v protoreflect.Value, resolver linker.Resolver) interface{} {
+// scalarToInterface converts a scalar protoreflect.Value to a Go any.
+func scalarToInterface(fd protoreflect.FieldDescriptor, v protoreflect.Value, resolver linker.Resolver) any {
 	switch fd.Kind() {
 	case protoreflect.BoolKind:
 		return v.Bool()
@@ -389,12 +389,12 @@ func scalarToInterface(fd protoreflect.FieldDescriptor, v protoreflect.Value, re
 }
 
 // messageToInterface converts a protoreflect.Message to a map for JSON serialization.
-func messageToInterface(msg protoreflect.Message, resolver linker.Resolver) map[string]interface{} {
+func messageToInterface(msg protoreflect.Message, resolver linker.Resolver) map[string]any {
 	if !msg.IsValid() {
 		return nil
 	}
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 	msg.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 		var fieldName string
 		if fd.IsExtension() {
@@ -497,8 +497,8 @@ func loadFile(bl *bulkLoader, f linker.File) error {
 func loadMessage(bl *bulkLoader, msg protoreflect.MessageDescriptor, fileName string, parentMsg *string) error {
 	fullName := string(msg.FullName())
 
-	// For Appender, convert *string to interface{} properly (nil or string value)
-	var parent interface{}
+	// For Appender, convert *string to any properly (nil or string value)
+	var parent any
 	if parentMsg != nil {
 		parent = *parentMsg
 	}
@@ -557,14 +557,14 @@ func loadMessage(bl *bulkLoader, msg protoreflect.MessageDescriptor, fileName st
 func loadField(bl *bulkLoader, field protoreflect.FieldDescriptor, msgFullName string, oneofIDs map[int]string) error {
 	fieldID := fmt.Sprintf("%s.%s", msgFullName, field.Name())
 
-	var typeName interface{}
+	var typeName any
 	if field.Kind() == protoreflect.MessageKind || field.Kind() == protoreflect.GroupKind {
 		typeName = string(field.Message().FullName())
 	} else if field.Kind() == protoreflect.EnumKind {
 		typeName = string(field.Enum().FullName())
 	}
 
-	var label interface{}
+	var label any
 	switch field.Cardinality() {
 	case protoreflect.Required:
 		label = "required"
@@ -575,7 +575,7 @@ func loadField(bl *bulkLoader, field protoreflect.FieldDescriptor, msgFullName s
 	}
 
 	isMap := field.IsMap()
-	var mapKeyType, mapValueType interface{}
+	var mapKeyType, mapValueType any
 	if isMap {
 		mapKeyType = field.MapKey().Kind().String()
 
@@ -588,7 +588,7 @@ func loadField(bl *bulkLoader, field protoreflect.FieldDescriptor, msgFullName s
 		mapValueType = vt
 	}
 
-	var defaultVal interface{}
+	var defaultVal any
 	if field.HasDefault() {
 		defaultVal = fmt.Sprintf("%v", field.Default().Interface())
 	}
@@ -632,7 +632,7 @@ func loadField(bl *bulkLoader, field protoreflect.FieldDescriptor, msgFullName s
 func loadEnum(bl *bulkLoader, enum protoreflect.EnumDescriptor, fileName string, parentMsg *string) error {
 	fullName := string(enum.FullName())
 
-	var parent interface{}
+	var parent any
 	if parentMsg != nil {
 		parent = *parentMsg
 	}
@@ -693,7 +693,7 @@ func loadService(bl *bulkLoader, svc protoreflect.ServiceDescriptor, fileName st
 func loadExtension(bl *bulkLoader, ext protoreflect.ExtensionDescriptor, fileName string) error {
 	fullName := string(ext.FullName())
 
-	var typeName interface{}
+	var typeName any
 	if ext.Kind() == protoreflect.MessageKind || ext.Kind() == protoreflect.GroupKind {
 		typeName = string(ext.Message().FullName())
 	} else if ext.Kind() == protoreflect.EnumKind {
