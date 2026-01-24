@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -20,9 +21,6 @@ type Result struct {
 type Options struct {
 	// ImportPaths specifies directories to search for imports.
 	ImportPaths []string
-	// Lenient continues parsing even when some files have errors.
-	// Files with errors will be skipped but other files will still be processed.
-	Lenient bool
 }
 
 // ParseFiles parses the given proto files and returns the compiled result.
@@ -31,32 +29,20 @@ func ParseFiles(ctx context.Context, files []string, opts Options) (*Result, err
 		ImportPaths: opts.ImportPaths,
 	}
 
-	warningW := os.Stderr
 	var collectedErrors []error
 
 	// Create a reporter that can be lenient about errors
-	var rep reporter.Reporter
-	if opts.Lenient {
-		rep = reporter.NewReporter(
-			func(err reporter.ErrorWithPos) error {
-				collectedErrors = append(collectedErrors, err)
-				// Return nil to continue processing
-				return nil
-			},
-			func(err reporter.ErrorWithPos) {
-				fmt.Fprintf(warningW, "warning: %v\n", err)
-			},
-		)
-	} else {
-		rep = reporter.NewReporter(
-			func(err reporter.ErrorWithPos) error {
-				return err // Return error to stop on first error
-			},
-			func(err reporter.ErrorWithPos) {
-				fmt.Fprintf(warningW, "warning: %v\n", err)
-			},
-		)
-	}
+	rep := reporter.NewReporter(
+		func(err reporter.ErrorWithPos) error {
+			collectedErrors = append(collectedErrors, err)
+			slog.Warn(err.Error())
+			// Return nil to continue processing
+			return nil
+		},
+		func(err reporter.ErrorWithPos) {
+			slog.Warn(err.Error())
+		},
+	)
 
 	compiler := &protocompile.Compiler{
 		Resolver: protocompile.WithStandardImports(resolver),
@@ -77,13 +63,8 @@ func ParseFiles(ctx context.Context, files []string, opts Options) (*Result, err
 		}
 	}
 
-	// If not lenient, return the error
-	if !opts.Lenient && err != nil {
-		return nil, err
-	}
-
-	// In lenient mode, only fail if we got zero files
-	if opts.Lenient && len(result.Files) == 0 && err != nil {
+	//  only fail if we got zero files
+	if len(result.Files) == 0 && err != nil {
 		return nil, fmt.Errorf("no files could be parsed: %w", err)
 	}
 

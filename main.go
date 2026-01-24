@@ -101,7 +101,7 @@ Tables available:
 
 			// Parse directories
 			for _, dir := range protoDirs {
-				result, err := parser.ParseDirectory(ctx, dir, parser.Options{ Lenient: true })
+				result, err := parser.ParseDirectory(ctx, dir, parser.Options{})
 				if err != nil {
 					return fmt.Errorf("error parsing directory %s: %v", dir, err)
 				}
@@ -132,7 +132,7 @@ Tables available:
 				os.Chdir(firstDir)
 				defer os.Chdir(origDir)
 
-				result, err := parser.ParseFiles(ctx, baseNames, parser.Options{ ImportPaths: []string{"."}, Lenient: true })
+				result, err := parser.ParseFiles(ctx, baseNames, parser.Options{ ImportPaths: []string{"."} })
 				if err != nil {
 					return fmt.Errorf("error parsing files: %v", err)
 				}
